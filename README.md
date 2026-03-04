@@ -92,10 +92,10 @@ Full 5-fold OOF cross-validation ensures models are never evaluated on data they
 
 | Model | RMSE Frequency | RMSE Severity (CM) | RMSE Final Premium (CHARGE) |
 |---|:---:|:---:|:---:|
-| Baseline (Ridge) | 0.2918 | €99,079 | €7,087.19 |
-| XGBoost (Optimized) | **0.2912** | **€78,944** | **€6,796.44** |
+| Baseline (Ridge) | 0.2918 | €133,113 | €6,837.16 |
+| XGBoost (Optimized) | **0.2912** | **€78,916** | **€6,796.90** |
 
-XGBoost reduces severity error by ~€20,000 and delivers an absolute CHARGE improvement of **€290.75 per policy**. The XGBoost model is retained for submission. In a production context, a distributed GLM (e.g. via Spark) would be worth considering for its regulatory explainability (ACPR) and lower compute cost.
+XGBoost reduces severity error by ~€54,000 and delivers an absolute CHARGE improvement of **€40.27 per policy** on OOF evaluation. The XGBoost model is retained for submission. In a production context, a distributed GLM (e.g. via Spark) would be worth considering for its regulatory explainability (ACPR) and lower compute cost.
 
 ---
 
