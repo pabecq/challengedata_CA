@@ -4,9 +4,8 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from sklearn.model_selection import cross_val_predict
 from sklearn.pipeline import Pipeline
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_score, KFold
 from sklearn.metrics import root_mean_squared_error
 
 root = Path(__file__).resolve().parent.parent
@@ -151,29 +150,55 @@ def main():
 
     print("\n#===# COMBINING RESULTS #===#")
 
-    print("Entraînement des baselines GLM sur l'ensemble des données...")
-    pipeline_baseline_freq.fit(X, y_freq)
-    pipeline_baseline_cm.fit(X_cm, y_cm)
+    kf = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+    
+    oof_preds_f_xgb = np.zeros(len(X))
+    oof_preds_c_xgb = np.zeros(len(X))
+    oof_preds_f_glm = np.zeros(len(X))
+    oof_preds_c_glm = np.zeros(len(X))
 
-    # Prédictions XGBoost
-    preds_f_xgb = np.clip(pipeline_freq.predict(X), 0, np.inf)
-    preds_c_xgb = np.clip(pipeline_cm.predict(X), 0, np.inf)
-    charge_xgb = preds_f_xgb * preds_c_xgb * df_train['ANNEE_ASSURANCE']
-    rmse_xgb = root_mean_squared_error(df_train['CHARGE'], charge_xgb)
+    for train_idx, val_idx in kf.split(X):
+        # 1. Split Data
+        X_tr, X_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_f_tr = y_freq.iloc[train_idx]
+        
+        # 2. Fit and Predict FREQ (XGBoost & GLM)
+        pipeline_freq.fit(X_tr, y_f_tr)
+        oof_preds_f_xgb[val_idx] = np.clip(pipeline_freq.predict(X_val), 0, np.inf)
 
-    # Prédictions GLM
-    preds_f_glm = np.clip(pipeline_baseline_freq.predict(X), 0, np.inf)
-    preds_c_glm = np.clip(pipeline_baseline_cm.predict(X), 0, np.inf)
-    charge_glm = preds_f_glm * preds_c_glm * df_train['ANNEE_ASSURANCE']
-    rmse_glm = root_mean_squared_error(df_train['CHARGE'], charge_glm)
+        pipeline_baseline_freq.fit(X_tr, y_f_tr)
+        oof_preds_f_glm[val_idx] = np.clip(pipeline_baseline_freq.predict(X_val), 0, np.inf)
+        
+        # 3. Fit and Predict CM (Trained ONLY on non-zero claims in the TRAIN fold)
+        mask_tr = (y_f_tr > 0) & (df_train.iloc[train_idx][target_cm] > 0)
+        X_c_tr = X_tr[mask_tr]
+        y_c_tr = df_train.iloc[train_idx].loc[mask_tr, target_cm]
+        
+        pipeline_cm.fit(X_c_tr, y_c_tr)
+        oof_preds_c_xgb[val_idx] = np.clip(pipeline_cm.predict(X_val), 0, np.inf)
 
-    print("\n🏆 --- COMPARAISON FINALE SUR LA CHARGE (RMSE) --- 🏆")
-    print(f"🔴 Baseline GLM (Ridge)         : {rmse_glm:,.2f} €")
-    print(f"🟢 XGBoost Optimisé             : {rmse_xgb:,.2f} €")
-    print(f"Différence absolue               : {rmse_glm - rmse_xgb:,.2f} €")
+        pipeline_baseline_cm.fit(X_c_tr, y_c_tr)
+        oof_preds_c_glm[val_idx] = np.clip(pipeline_baseline_cm.predict(X_val), 0, np.inf)
 
+
+    # Calculate final true CHARGE OOF predictions
+    charge_xgb_oof = oof_preds_f_xgb * oof_preds_c_xgb * df_train['ANNEE_ASSURANCE']
+    charge_glm_oof = oof_preds_f_glm * oof_preds_c_glm * df_train['ANNEE_ASSURANCE']
+
+    rmse_xgb_oof = root_mean_squared_error(df_train['CHARGE'], charge_xgb_oof)
+    rmse_glm_oof = root_mean_squared_error(df_train['CHARGE'], charge_glm_oof)
+
+    print("\n🏆 --- TRUE OUT-OF-FOLD COMPARAISON SUR LA CHARGE (RMSE) --- 🏆")
+    print(f"🔴 Baseline GLM (Ridge) OOF    : {rmse_glm_oof:,.2f} €")
+    print(f"🟢 XGBoost Optimisé OOF        : {rmse_xgb_oof:,.2f} €")
+    print(f"Différence absolue              : {rmse_glm_oof - rmse_xgb_oof:,.2f} €")
     
     print("\n Predicting Final CHARGE on Test Set...")
+
+    # Retrain on full data BEFORE predicting on test set
+    print("\nRetraining models on FULL dataset for final test submission...")
+    pipeline_freq.fit(X, y_freq)
+    pipeline_cm.fit(X_cm, y_cm)
     
     preds_freq = pipeline_freq.predict(X_test)
     preds_cm = pipeline_cm.predict(X_test)

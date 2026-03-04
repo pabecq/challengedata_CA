@@ -75,7 +75,7 @@ def initial_cleaning(df):
     num_cols = df_clean.select_dtypes(include=['int64', 'float64', 'int32', 'float32']).columns
     cat_cols = df_clean.select_dtypes(include=['object', 'category']).columns
 
-    size_cols = [c for c in num_cols if any(k in c for k in 'TAILLE')]
+    size_cols = [c for c in num_cols if 'TAILLE' in c]
     df_clean[size_cols] = df_clean[size_cols].map(size_extract)
 
 
